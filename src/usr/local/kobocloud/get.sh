@@ -143,5 +143,11 @@ else
   fi
 fi
 
+# self-update (no-op unless kobocloudrc contains an UPDATE:owner/repo line).
+# Done at the end of the sync so the next run uses the new scripts.
+if [ -f "$KC_HOME/selfUpdate.sh" ]; then
+  sh "$KC_HOME/selfUpdate.sh"
+fi
+
 rm "$Logs/index" >/dev/null 2>&1
 echo "`$Dt` done"

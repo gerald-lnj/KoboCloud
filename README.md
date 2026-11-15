@@ -178,6 +178,46 @@ To delete files from library when they are no longer in the remote server:
 The next time the Kobo is connected to the internet, it will delete any files (it will not delete directories) that are not in the remote server.
 
 
+## Self-update
+
+KoboCloud can keep itself up to date from GitHub. It is opt-in: add a line with the
+repository you want to follow to `kobocloudrc`:
+
+```
+UPDATE:fsantini/KoboCloud
+```
+
+or, if you run this fork (with the SMB support):
+
+```
+UPDATE:gerald-lnj/KoboCloud
+```
+
+On every sync, after downloading books, KoboCloud:
+
+1. asks GitHub which commit is on the `master` branch of that repository,
+2. compares it with the commit recorded in `/usr/local/kobocloud/version`,
+3. if they differ, downloads the latest release asset (`KoboRoot.tgz`) and unpacks it over the
+   installation. Repositories without a release (typical for forks) fall back to the source archive
+   of that commit,
+4. syntax checks every downloaded script with `sh -n` before installing it, and keeps a copy of the
+   previous version in `/usr/local/kobocloud.bak`,
+5. writes the new commit into `version`, or restores the backup if anything went wrong.
+
+The configuration (`kobocloudrc`), the library and the log live on the reader partition and are never
+replaced by an update. Bookmarks and reading positions are of course untouched too.
+
+Notes:
+
+- The check needs internet access. An `UPDATE:` line also re-enables the connectivity check that a
+  SMB-only configuration would otherwise skip.
+- Point `UPDATE:` at the repository whose code you actually want: following upstream `fsantini/KoboCloud`
+  while running a modified version (or this fork) will replace your changes with upstream's code.
+- Updates are downloaded over HTTPS from github.com, but the archive is not signed, so this trusts
+  GitHub and the repository owner. Leave the line commented out if you prefer updating by hand.
+- To update (or force a reinstall) manually over SSH:
+  `sh /usr/local/kobocloud/selfUpdate.sh --force`
+
 ## Usage
 
 The new files will be downloaded when the kobo connects to the Internet for a sync. Sometimes few minutes is needed after the sync process for the device to recognize and import new downloaded content.
