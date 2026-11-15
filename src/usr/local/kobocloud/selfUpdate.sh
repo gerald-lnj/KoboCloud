@@ -7,19 +7,24 @@
 #
 # e.g. UPDATE:fsantini/KoboCloud   or   UPDATE:gerald-lnj/KoboCloud
 #
-# On every sync KoboCloud asks GitHub which commit is on the master branch of
-# that repository and compares it with the commit recorded in the "version"
-# file of the installed copy (/usr/local/kobocloud/version). If they differ,
-# the latest release asset (KoboRoot.tgz) is downloaded and unpacked over the
-# installation; if the repository has no release, the source archive of that
-# commit is used instead. Before installing, every downloaded script is
-# syntax checked; if anything looks wrong the previous copy is restored.
+# On every sync KoboCloud asks GitHub for the latest release of that
+# repository (the "releases/latest" API endpoint) and compares its release id
+# with the one recorded in the "release" file of the installed copy. When a
+# different release is published, its KoboRoot.tgz asset is downloaded and
+# installed: that is exactly the archive a normal installation unpacks.
+# Before installing, every downloaded script is syntax checked; if anything
+# looks wrong the previous copy is restored.
 #
-# The share/library configuration (kobocloudrc, Library/, get.log) lives on
-# the reader partition and is never touched.
+# The repository must publish releases. Both fsantini/KoboCloud and its forks
+# do that from CI on every push to master. Upstream keeps reusing the tag
+# "latest" and replaces the release, so the release id - not the tag - is what
+# identifies a version here.
+#
+# The configuration (kobocloudrc, Library/, get.log) lives on the reader
+# partition and is never touched.
 #
 # Usage: selfUpdate.sh [--force]
-#   --force (or KC_UPDATE_FORCE=1) installs even if the commit is unchanged.
+#   --force (or KC_UPDATE_FORCE=1) installs even if the release is unchanged.
 
 #load config
 . $(dirname $0)/config.sh
@@ -35,8 +40,11 @@ case "$1" in
 esac
 [ "$KC_UPDATE_FORCE" = "1" ] && forced=1
 
-dt() { date +%Y-%m-%d_%H:%M:%S; }
+dt() { echo "`date +%Y-%m-%d_%H:%M:%S`"; }
 log() { echo "`dt` self-update: $1"; }
+
+cleanup() { rm -rf "$KC_WORK_DIR"; }
+trap cleanup EXIT INT TERM
 
 # ---------------------------------------------------------------------------
 # which repository?
@@ -53,73 +61,72 @@ if ! echo "$repo" | grep -Eq '^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$'; then
     exit 1
 fi
 
-log "checking $repo"
-
-installed=`cat "$KC_HOME/version" 2>/dev/null | tr -d '[:space:]'`
-
-remote=`$KC_CURL -k -s -L --max-time 60 "https://api.github.com/repos/$repo/commits/master" |
-    grep -m 1 -o '"sha": *"[0-9a-f]\{40\}"' |
-    sed 's/.*"\([0-9a-f]\{40\}\)"/\1/')`
-
-if [ -z "$remote" ]; then
-    log "could not get the latest commit of $repo (no network, rate limit or bad repository name), giving up for now"
-    exit 1
-fi
-
-if [ "$remote" = "$installed" ] && [ "$forced" = "0" ]; then
-    log "already up to date ($remote)"
-    exit 0
-fi
-
-if [ "$remote" = "$installed" ]; then
-    log "forcing reinstall of $remote"
-else
-    log "update available: installed ${installed:-unknown}, latest $remote"
-fi
-
-# ---------------------------------------------------------------------------
-# download
-# ---------------------------------------------------------------------------
+log "checking the latest release of $repo"
 
 rm -rf "$KC_WORK_DIR"
 mkdir -p "$KC_WORK_DIR" || { log "cannot create $KC_WORK_DIR"; exit 1; }
+json="$KC_WORK_DIR/release.json"
+
+$KC_CURL -k -s -S -L --max-time 60 \
+    "https://api.github.com/repos/$repo/releases/latest" -o "$json" 2>/dev/null
+
+release=`grep -m 1 -o '"id": *[0-9]\{1,\}' "$json" 2>/dev/null | sed 's/.*: *//'`
+
+if [ -z "$release" ]; then
+    if grep -q '"message"' "$json" 2>/dev/null; then
+        message=`grep -m 1 -o '"message": *"[^"]*"' "$json" | sed 's/.*: *"\([^"]*\)"/\1/'`
+        log "GitHub returned no release for $repo ($message), nothing to do"
+    else
+        log "could not query GitHub for $repo (network problem or rate limit), giving up for now"
+    fi
+    exit 1
+fi
+
+tag=`grep -m 1 -o '"tag_name": *"[^"]*"' "$json" | sed 's/.*: *"\([^"]*\)"/\1/'`
+published=`grep -m 1 -o '"published_at": *"[^"]*"' "$json" | sed 's/.*: *"\([^"]*\)"/\1/'`
+assetUrl=`grep -o '"browser_download_url": *"[^"]*KoboRoot\.tgz"' "$json" |
+    sed 's/.*: *"\([^"]*\)"/\1/' | head -n 1`
+
+installed=`cat "$KC_HOME/release" 2>/dev/null | tr -d '[:space:]'`
+
+if [ "$release" = "$installed" ] && [ "$forced" = "0" ]; then
+    log "already up to date (release $release, tag ${tag:-?})"
+    exit 0
+fi
+
+if [ "$release" = "$installed" ]; then
+    log "forcing reinstall of release $release"
+else
+    log "update available: release $release (tag ${tag:-?}, published ${published:-?}), installed release ${installed:-unknown}"
+fi
+
+if [ -z "$assetUrl" ]; then
+    log "release $release has no KoboRoot.tgz asset, keeping the installed version"
+    exit 1
+fi
+
+# ---------------------------------------------------------------------------
+# download and check
+# ---------------------------------------------------------------------------
+
 tgz="$KC_WORK_DIR/package.tgz"
 unpacked="$KC_WORK_DIR/unpacked"
 mkdir -p "$unpacked"
 
-layout=""
-
-# 1. release asset (this is what a normal installation uses)
-if $KC_CURL -k -s -S -L --max-time 300 -o "$tgz" "https://github.com/$repo/releases/latest/download/KoboRoot.tgz" &&
-   gzip -dc "$tgz" 2>/dev/null | tar tf - 2>/dev/null | grep -q '^usr/local/kobocloud/get.sh$'; then
-    layout="release"
-    log "downloaded the latest release of $repo"
-# 2. source archive of the same commit (repositories without releases, e.g. forks)
-elif $KC_CURL -k -s -S -L --max-time 300 -o "$tgz" "https://codeload.github.com/$repo/tar.gz/$remote" &&
-     gzip -dc "$tgz" 2>/dev/null | tar tf - 2>/dev/null | grep -q 'src/usr/local/kobocloud/get.sh$'; then
-    layout="source"
-    log "downloaded the source archive of $remote ($repo has no release)"
-else
-    log "download failed, keeping the installed version"
-    rm -rf "$KC_WORK_DIR"
+if ! $KC_CURL -k -s -S -L --max-time 300 -o "$tgz" "$assetUrl" ||
+   ! gzip -dc "$tgz" 2>/dev/null | tar tf - 2>/dev/null | grep -q '^usr/local/kobocloud/get.sh$'; then
+    log "download of $assetUrl failed, keeping the installed version"
     exit 1
 fi
 
+log "downloaded release $release from $assetUrl"
+
 gzip -dc "$tgz" | tar xf - -C "$unpacked" 2>/dev/null ||
-    { log "cannot unpack the downloaded archive"; rm -rf "$KC_WORK_DIR"; exit 1; }
+    { log "cannot unpack the downloaded archive"; exit 1; }
 
-if [ "$layout" = "release" ]; then
-    newRoot="$unpacked"
-else
-    newRoot=`find "$unpacked" -maxdepth 1 -type d -name 'KoboCloud-*' | head -n 1`
-    [ -z "$newRoot" ] && { log "unexpected source archive layout"; rm -rf "$KC_WORK_DIR"; exit 1; }
-    newRoot="$newRoot/src"
-fi
-
-newKc="$newRoot/usr/local/kobocloud"
+newKc="$unpacked/usr/local/kobocloud"
 if [ ! -f "$newKc/get.sh" ]; then
     log "downloaded archive has no get.sh, aborting"
-    rm -rf "$KC_WORK_DIR"
     exit 1
 fi
 
@@ -127,8 +134,7 @@ fi
 for script in "$newKc"/*.sh; do
     [ -e "$script" ] || continue
     if ! sh -n "$script" 2>/dev/null; then
-        log "`basename "$script"` from the downloaded archive is not valid shell, aborting"
-        rm -rf "$KC_WORK_DIR"
+        log "`basename "$script"` from release $release is not valid shell, aborting"
         exit 1
     fi
 done
@@ -140,7 +146,6 @@ done
 rm -rf "$KC_BACKUP_DIR"
 if ! cp -a "$KC_HOME" "$KC_BACKUP_DIR" 2>/dev/null; then
     log "cannot back up $KC_HOME, aborting"
-    rm -rf "$KC_WORK_DIR"
     exit 1
 fi
 
@@ -163,16 +168,16 @@ for file in "$newKc"/*; do
 done
 
 # udev rules and any other system file shipped in the release
-if [ "$layout" = "release" ] && [ -d "$newRoot/etc/udev/rules.d" ] && [ -w /etc/udev/rules.d ]; then
-    for file in "$newRoot/etc/udev/rules.d"/*; do
+if [ -d "$unpacked/etc/udev/rules.d" ] && [ -w /etc/udev/rules.d ]; then
+    for file in "$unpacked/etc/udev/rules.d"/*; do
         [ -e "$file" ] || continue
         installFile "$file" "/etc/udev/rules.d/`basename "$file"`" || failed=1
     done
 fi
 
 if [ "$failed" = "0" ] && sh -n "$KC_HOME/get.sh" 2>/dev/null; then
-    echo "$remote" > "$KC_HOME/version"
-    log "updated to $remote (previous copy in $KC_BACKUP_DIR)"
+    echo "$release" > "$KC_HOME/release"
+    log "installed release $release (tag ${tag:-?}, previous copy in $KC_BACKUP_DIR)"
 else
     log "installation failed, restoring the previous version"
     rm -rf "$KC_HOME"
@@ -181,9 +186,7 @@ else
     else
         log "ERROR: could not restore $KC_HOME, backup is in $KC_BACKUP_DIR"
     fi
-    rm -rf "$KC_WORK_DIR"
     exit 1
 fi
 
-rm -rf "$KC_WORK_DIR"
 exit 0

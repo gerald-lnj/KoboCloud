@@ -195,14 +195,19 @@ UPDATE:gerald-lnj/KoboCloud
 
 On every sync, after downloading books, KoboCloud:
 
-1. asks GitHub which commit is on the `master` branch of that repository,
-2. compares it with the commit recorded in `/usr/local/kobocloud/version`,
-3. if they differ, downloads the latest release asset (`KoboRoot.tgz`) and unpacks it over the
-   installation. Repositories without a release (typical for forks) fall back to the source archive
-   of that commit,
+1. asks GitHub for the latest release of that repository (`releases/latest`),
+2. compares its release id with the one recorded in `/usr/local/kobocloud/release`
+   (upstream reuses the tag `latest` and replaces the release, so the id — not the tag — identifies
+   a version),
+3. if a different release is published, downloads its `KoboRoot.tgz` asset — the same archive a
+   normal installation unpacks — and installs it,
 4. syntax checks every downloaded script with `sh -n` before installing it, and keeps a copy of the
    previous version in `/usr/local/kobocloud.bak`,
-5. writes the new commit into `version`, or restores the backup if anything went wrong.
+5. writes the new release id into `release`, or restores the backup if anything went wrong.
+
+The repository needs published releases, which both upstream and its forks produce from CI on every
+push to master. This fork has no release yet, so `UPDATE:gerald-lnj/KoboCloud` only starts finding
+updates once something is pushed to its `master`.
 
 The configuration (`kobocloudrc`), the library and the log live on the reader partition and are never
 replaced by an update. Bookmarks and reading positions are of course untouched too.
