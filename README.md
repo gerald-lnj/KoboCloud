@@ -9,6 +9,7 @@ The following cloud services are supported:
 - pCloud
 - Box
 - Yandex Disk
+- SMB/CIFS shares on your local network
 
 ## <a name="installation"></a>Installation
 
@@ -108,6 +109,65 @@ Please note that, even though the script supports folders where the file list ha
 - Copy the link into the kobocloudrc file
 
 Subdirectories are supported for Yandex Disk.
+
+### SMB/CIFS share (local network)
+
+KoboCloud can read a book directory from a SMB/CIFS share on your local network (Samba, Windows, NAS).
+
+The line format is:
+
+```
+SMB:server/share/path|mount-options
+```
+
+- `server` is the host name or IP address of the server
+- `share` is the name of the SMB share
+- `path` is the optional path inside the share, where your books are
+- `mount-options` (everything after the `|`) is passed unchanged to the mount, so all the usual
+  SMB options work (`username`, `password`, `domain`, `vers`, `credentials`, `port`, ...)
+
+Examples:
+
+```
+# public share, guest access
+SMB:192.168.1.10/books
+
+# authenticated share, books in the "New" subdirectory of the share
+SMB:192.168.1.10/books/New|username=kobo,password=mysecret,vers=3.0
+
+# credentials in a file (chmod 600), SMB1 disabled on the server
+SMB:nas.local/ebooks|credentials=/mnt/onboard/.add/kobocloud/smbcred,vers=2.1
+```
+
+The credentials file uses the standard `mount.cifs` format:
+
+```
+username=kobo
+password=mysecret
+domain=WORKGROUP
+```
+
+Subdirectories inside the share are supported (the directory structure is recreated in the library).
+
+Notes:
+
+- The share is mounted read-only unless you add `rw` yourself, and it is unmounted at the end of the sync.
+- If the target starts with `/`, it is used as an already-mounted directory and nothing is mounted:
+  `SMB:/mnt/onboard/.add/kobocloud/myshare`. This is also a way to test the script without a server.
+- Two transfer backends are used, in this order:
+  1. a kernel CIFS mount (`mount -t cifs`), which needs CIFS support in the Kobo kernel. **Stock Kobo
+     firmware does not ship it.** Install a matching `cifs.ko`, or
+  2. the `smbclient` binary (Samba). Put an ARM-compatible `smbclient` in `/usr/local/kobocloud/`
+     (next to the other scripts) or somewhere in the `PATH`.
+  If neither is available the sync logs a clear error and the rest of the sources are still processed.
+- A configuration with only `SMB:` lines does not need an internet connection: the connectivity
+  check is skipped, so a device with only a local share syncs offline.
+
+How the mount is done exactly:
+
+```
+mount -t cifs //<server>/<share> /mnt/onboard/.add/kobocloud/smb -o <mount-options>
+```
 
 ### Matching remote server
 To delete files from library when they are no longer in the remote server:
