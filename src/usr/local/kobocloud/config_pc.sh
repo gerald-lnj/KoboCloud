@@ -1,9 +1,10 @@
 #!/bin/sh
-Logs=/tmp/KoboCloud
-Lib=/tmp/KoboCloud/Library
-SD=/tmp/KoboCloud/sd
-UserConfig=/tmp/KoboCloud/kobocloudrc
+: "${KC_BASE_DIR:=/tmp/KoboCloud}"
+Logs="$KC_BASE_DIR"
+Lib="$KC_BASE_DIR/Library"
+SD="$KC_BASE_DIR/sd"
+UserConfig="$KC_BASE_DIR/kobocloudrc"
 Dt="date +%Y-%m-%d_%H:%M:%S"
 CURL=/usr/bin/curl
-SMBMOUNT=/tmp/KoboCloud/smb
+SMBMOUNT="$KC_BASE_DIR/smb"
 PLATFORM=PC

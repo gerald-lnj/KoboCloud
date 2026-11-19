@@ -66,7 +66,7 @@ echo "$lib_list_before"
 
 
 # keep smb passwords out of the log
-maskSecrets() { printf '%s' "$1" | sed -e 's/\(password\|pass\)=[^,|]*/\1=***/g'; }
+maskSecrets() { printf '%s' "$1" | sed -e 's/password=[^,|]*/password=***/g' -e 's/pass=[^,|]*/pass=***/g'; }
 
 while read url || [ -n "$url" ]; do
   echo "Reading `maskSecrets "$url"`"
@@ -145,7 +145,7 @@ fi
 
 # self-update (no-op unless kobocloudrc contains an UPDATE:owner/repo line).
 # Done at the end of the sync so the next run uses the new scripts.
-if [ -f "$KC_HOME/selfUpdate.sh" ]; then
+if [ -f "$KC_HOME/selfUpdate.sh" ] && [ "$TEST" = "" ]; then
   sh "$KC_HOME/selfUpdate.sh"
 fi
 

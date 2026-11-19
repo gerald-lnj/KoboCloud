@@ -147,7 +147,12 @@ password=mysecret
 domain=WORKGROUP
 ```
 
-Subdirectories inside the share are supported (the directory structure is recreated in the library).
+Subdirectories are handled differently by the two backends:
+- the kernel CIFS mount copies files recursively and recreates the directory
+  structure in the library;
+- the `smbclient` fallback downloads every file flat into the library (no
+  subdirectories). It assumes there are no filename clashes: when two files in
+  different subdirectories share a name, the last one downloaded wins.
 
 Notes:
 
@@ -159,6 +164,12 @@ Notes:
      firmware does not ship it.** Install a matching `cifs.ko`, or
   2. the `smbclient` binary (Samba). Put an ARM-compatible `smbclient` in `/usr/local/kobocloud/`
      (next to the other scripts) or somewhere in the `PATH`.
+     Where to get one: take the `armhf` build from the Debian or Ubuntu `smbclient`
+     package (download the `armhf` `.deb` and extract it with `dpkg -x`; copy the
+     shared libraries it needs too), or build a single static binary with
+     `./configure --nonshared=binary=smbclient` using an `armv7-eabihf` toolchain
+     (for example a musl toolchain from toolchains.bootlin.com). Modern Kobo
+     firmware needs `armhf` (hard-float), not `armel`.
   If neither is available the sync logs a clear error and the rest of the sources are still processed.
 - A configuration with only `SMB:` lines does not need an internet connection: the connectivity
   check is skipped, so a device with only a local share syncs offline.

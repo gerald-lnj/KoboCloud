@@ -29,7 +29,17 @@
 #load config
 . $(dirname $0)/config.sh
 
-[ -z "$KC_CURL" ] && KC_CURL="$CURL"
+# Resolve a plain curl binary path. config_kobo.sh sets $CURL to a shell command
+# string with embedded quotes ("curl --cacert \"$KC_HOME/ca-bundle.crt\""), which
+# does not word-split correctly when expanded unquoted. selfUpdate passes -k (no
+# certificate verification), so --cacert is not needed here.
+if [ -z "$KC_CURL" ]; then
+    if [ -x "$KC_HOME/curl" ]; then
+        KC_CURL="$KC_HOME/curl"
+    else
+        KC_CURL=`command -v curl 2>/dev/null || echo /usr/bin/curl`
+    fi
+fi
 [ -z "$KC_INSTALL_DIR" ] && KC_INSTALL_DIR=`dirname "$KC_HOME"`
 [ -z "$KC_BACKUP_DIR" ] && KC_BACKUP_DIR="$KC_INSTALL_DIR/kobocloud.bak"
 [ -z "$KC_WORK_DIR" ] && KC_WORK_DIR="/tmp/kobocloud-update"
@@ -67,7 +77,7 @@ rm -rf "$KC_WORK_DIR"
 mkdir -p "$KC_WORK_DIR" || { log "cannot create $KC_WORK_DIR"; exit 1; }
 json="$KC_WORK_DIR/release.json"
 
-$KC_CURL -k -s -S -L --max-time 60 \
+"$KC_CURL" -k -s -S -L --max-time 60 \
     "https://api.github.com/repos/$repo/releases/latest" -o "$json" 2>/dev/null
 
 release=`grep -m 1 -o '"id": *[0-9]\{1,\}' "$json" 2>/dev/null | sed 's/.*: *//'`
@@ -113,7 +123,7 @@ tgz="$KC_WORK_DIR/package.tgz"
 unpacked="$KC_WORK_DIR/unpacked"
 mkdir -p "$unpacked"
 
-if ! $KC_CURL -k -s -S -L --max-time 300 -o "$tgz" "$assetUrl" ||
+if ! "$KC_CURL" -k -s -S -L --max-time 300 -o "$tgz" "$assetUrl" ||
    ! gzip -dc "$tgz" 2>/dev/null | tar tf - 2>/dev/null | grep -q '^usr/local/kobocloud/get.sh$'; then
     log "download of $assetUrl failed, keeping the installed version"
     exit 1

@@ -12,6 +12,7 @@ MountLog="$Work/mount.log"
 SmbLog="$Work/smbclient.log"
 FAILED=0
 
+export KC_BASE_DIR="$Work/kobo"
 . $KC/config_pc.sh
 
 pass() { echo "PASS: $1"; }

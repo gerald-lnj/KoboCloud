@@ -30,11 +30,20 @@ outDir="$2"
 
 [ -z "$SMBMOUNT" ] && SMBMOUNT="$Logs/smb"
 
+# credentials and smbclient output live in /tmp; remove them if interrupted
+authFile=""
+logFile=""
+cleanupSmb() {
+    [ -n "$authFile" ] && rm -f "$authFile" 2>/dev/null
+    [ -n "$logFile" ] && rm -f "$logFile" 2>/dev/null
+}
+trap 'cleanupSmb; exit 1' INT TERM
+
 trim() { printf '%s' "$1" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'; }
 
 # hide passwords in the log
 maskOptions() {
-    printf '%s' "$1" | sed -e 's/\(password\|pass\)=[^,]*/\1=***/g'
+    printf '%s' "$1" | sed -e 's/password=[^,]*/password=***/g' -e 's/pass=[^,]*/pass=***/g'
 }
 
 historyFile="$Lib/filesList.log"
@@ -46,8 +55,16 @@ recordFile() {
 }
 
 spec=`trim "$1" | sed 's/^SMB://'`
-target=`trim "\`printf '%s' \"$spec\" | sed 's/|.*//'\`"`
-smbOpts=`trim "\`printf '%s' \"$spec\" | sed -n 's/^[^|]*|//p'\`"`
+target="$spec"
+smbOpts=""
+case "$spec" in
+    *\|*)
+        target=${spec%%|*}
+        smbOpts=${spec#*|}
+        ;;
+esac
+target=`trim "$target"`
+smbOpts=`trim "$smbOpts"`
 
 echo "SMB target: $target"
 if [ -n "$smbOpts" ]; then
@@ -81,7 +98,7 @@ else
     host=`printf '%s' "$target" | sed -e 's@^//@@' | cut -d/ -f1`
     share=`printf '%s' "$target" | sed -e 's@^//@@' | cut -d/ -f2`
     sub=`printf '%s' "$target" | sed -e 's@^//@@' | cut -d/ -f3-`
-    if [ -z "$host" ] || [ -z "$share" ] || [ "$sub" = "$host" ]; then
+    if [ -z "$host" ] || [ -z "$share" ]; then
         echo "Error: cannot parse '$target'. Expected SMB:server/share[/path]"
         exit 1
     fi
@@ -225,13 +242,16 @@ syncWithSmbclient() {
     if [ -n "$creds" ] || [ -n "$authFile" ]; then
         grep -q "NT_STATUS_LOGON_FAILURE" "$logFile" && echo "Error: SMB authentication failed"
     fi
-    # record downloaded files for REMOVE_DELETED (best effort: smbclient
-    # prints "getting file \path\name of size ...")
+    # record downloaded files for REMOVE_DELETED. smbclient's mget flattens the
+    # tree into $outDir, so the local name is the basename of the remote path.
+    # Best effort: smbclient prints "getting file \path\name of size ...".
     if grep -q "^REMOVE_DELETED" "$UserConfig" 2>/dev/null; then
         grep -i "getting file" "$logFile" |
             sed -e 's/.*getting file \\\([^ ]*\) of size.*/\1/' -e 's@\\@/@g' |
             while read dl; do
-                [ -n "$dl" ] && echo "$outDir/$dl" >> "$historyFile"
+                [ -n "$dl" ] || continue
+                name=`basename "$dl"`
+                echo "$outDir/$name" >> "$historyFile"
             done
     fi
     if [ "$status" -ne 0 ]; then
