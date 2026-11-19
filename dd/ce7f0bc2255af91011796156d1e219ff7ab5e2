@@ -1,0 +1,26 @@
+README.md
+  h_0b4f5ba744e181 150-155,167-172
+smb_test.sh
+  h_0b4f5ba744e181 15
+src/usr/local/kobocloud/config_pc.sh
+  h_0b4f5ba744e181 2-6,9
+src/usr/local/kobocloud/get.sh
+  h_0b4f5ba744e181 69,148
+src/usr/local/kobocloud/getSmbFiles.sh
+  h_0b4f5ba744e181 33-41,46,58-67,101,245-247,252-254
+src/usr/local/kobocloud/selfUpdate.sh
+  h_0b4f5ba744e181 32-42,80,126
+update_test.sh
+  h_0b4f5ba744e181 17
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "ddce7f0bc2255af91011796156d1e219ff7ab5e2",
+  "prompts": {},
+  "humans": {
+    "h_0b4f5ba744e181": {
+      "author": "Gerald Lau <gerald.lau@foodpanda.com>"
+    }
+  }
+}
