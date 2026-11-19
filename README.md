@@ -9,6 +9,7 @@ The following cloud services are supported:
 - pCloud
 - Box
 - Yandex Disk
+- SMB/CIFS shares on your local network
 
 ## <a name="installation"></a>Installation
 
@@ -109,6 +110,76 @@ Please note that, even though the script supports folders where the file list ha
 
 Subdirectories are supported for Yandex Disk.
 
+### SMB/CIFS share (local network)
+
+KoboCloud can read a book directory from a SMB/CIFS share on your local network (Samba, Windows, NAS).
+
+The line format is:
+
+```
+SMB:server/share/path|mount-options
+```
+
+- `server` is the host name or IP address of the server
+- `share` is the name of the SMB share
+- `path` is the optional path inside the share, where your books are
+- `mount-options` (everything after the `|`) is passed unchanged to the mount, so all the usual
+  SMB options work (`username`, `password`, `domain`, `vers`, `credentials`, `port`, ...)
+
+Examples:
+
+```
+# public share, guest access
+SMB:192.168.1.10/books
+
+# authenticated share, books in the "New" subdirectory of the share
+SMB:192.168.1.10/books/New|username=kobo,password=mysecret,vers=3.0
+
+# credentials in a file (chmod 600), SMB1 disabled on the server
+SMB:nas.local/ebooks|credentials=/mnt/onboard/.add/kobocloud/smbcred,vers=2.1
+```
+
+The credentials file uses the standard `mount.cifs` format:
+
+```
+username=kobo
+password=mysecret
+domain=WORKGROUP
+```
+
+Subdirectories are handled differently by the two backends:
+- the kernel CIFS mount copies files recursively and recreates the directory
+  structure in the library;
+- the `smbclient` fallback downloads every file flat into the library (no
+  subdirectories). It assumes there are no filename clashes: when two files in
+  different subdirectories share a name, the last one downloaded wins.
+
+Notes:
+
+- The share is mounted read-only unless you add `rw` yourself, and it is unmounted at the end of the sync.
+- If the target starts with `/`, it is used as an already-mounted directory and nothing is mounted:
+  `SMB:/mnt/onboard/.add/kobocloud/myshare`. This is also a way to test the script without a server.
+- Two transfer backends are used, in this order:
+  1. a kernel CIFS mount (`mount -t cifs`), which needs CIFS support in the Kobo kernel. **Stock Kobo
+     firmware does not ship it.** Install a matching `cifs.ko`, or
+  2. the `smbclient` binary (Samba). Put an ARM-compatible `smbclient` in `/usr/local/kobocloud/`
+     (next to the other scripts) or somewhere in the `PATH`.
+     Where to get one: take the `armhf` build from the Debian or Ubuntu `smbclient`
+     package (download the `armhf` `.deb` and extract it with `dpkg -x`; copy the
+     shared libraries it needs too), or build a single static binary with
+     `./configure --nonshared=binary=smbclient` using an `armv7-eabihf` toolchain
+     (for example a musl toolchain from toolchains.bootlin.com). Modern Kobo
+     firmware needs `armhf` (hard-float), not `armel`.
+  If neither is available the sync logs a clear error and the rest of the sources are still processed.
+- A configuration with only `SMB:` lines does not need an internet connection: the connectivity
+  check is skipped, so a device with only a local share syncs offline.
+
+How the mount is done exactly:
+
+```
+mount -t cifs //<server>/<share> /mnt/onboard/.add/kobocloud/smb -o <mount-options>
+```
+
 ### Matching remote server
 To delete files from library when they are no longer in the remote server:
 
@@ -117,6 +188,51 @@ To delete files from library when they are no longer in the remote server:
 
 The next time the Kobo is connected to the internet, it will delete any files (it will not delete directories) that are not in the remote server.
 
+
+## Self-update
+
+KoboCloud can keep itself up to date from GitHub. It is opt-in: add a line with the
+repository you want to follow to `kobocloudrc`:
+
+```
+UPDATE:fsantini/KoboCloud
+```
+
+or, if you run this fork (with the SMB support):
+
+```
+UPDATE:gerald-lnj/KoboCloud
+```
+
+On every sync, after downloading books, KoboCloud:
+
+1. asks GitHub for the latest release of that repository (`releases/latest`),
+2. compares its release id with the one recorded in `/usr/local/kobocloud/release`
+   (upstream reuses the tag `latest` and replaces the release, so the id — not the tag — identifies
+   a version),
+3. if a different release is published, downloads its `KoboRoot.tgz` asset — the same archive a
+   normal installation unpacks — and installs it,
+4. syntax checks every downloaded script with `sh -n` before installing it, and keeps a copy of the
+   previous version in `/usr/local/kobocloud.bak`,
+5. writes the new release id into `release`, or restores the backup if anything went wrong.
+
+The repository needs published releases, which both upstream and its forks produce from CI on every
+push to master. This fork has no release yet, so `UPDATE:gerald-lnj/KoboCloud` only starts finding
+updates once something is pushed to its `master`.
+
+The configuration (`kobocloudrc`), the library and the log live on the reader partition and are never
+replaced by an update. Bookmarks and reading positions are of course untouched too.
+
+Notes:
+
+- The check needs internet access. An `UPDATE:` line also re-enables the connectivity check that a
+  SMB-only configuration would otherwise skip.
+- Point `UPDATE:` at the repository whose code you actually want: following upstream `fsantini/KoboCloud`
+  while running a modified version (or this fork) will replace your changes with upstream's code.
+- Updates are downloaded over HTTPS from github.com, but the archive is not signed, so this trusts
+  GitHub and the repository owner. Leave the line commented out if you prefer updating by hand.
+- To update (or force a reinstall) manually over SSH:
+  `sh /usr/local/kobocloud/selfUpdate.sh --force`
 
 ## Usage
 

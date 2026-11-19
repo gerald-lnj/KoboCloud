@@ -49,6 +49,16 @@ jobs:
 #            cd repo
 #            ./local_test.sh nextcloudsubdirpath
             
+        - name: Test SMB support
+          run: |
+            cd repo
+            ./smb_test.sh
+
+        - name: Test self-update
+          run: |
+            cd repo
+            ./update_test.sh
+
         - name: Test GDrive + deletion
           run: |
             cd repo

@@ -20,6 +20,14 @@ fi
 
 if [ "$TEST" = "" ]
 then
+    # SMB shares are local, no internet connection is needed for them alone
+    needsNetwork=1
+    if ! grep -v -e '^[[:space:]]*#' -e '^[[:space:]]*$' -e '^REMOVE_DELETED' -e '^NO_CURL_VERBOSE' -e '^[[:space:]]*SMB:' $UserConfig 2>/dev/null | grep -q . ; then
+        needsNetwork=0
+    fi
+
+    if [ "$needsNetwork" = "1" ]
+    then
     #check internet connection
     echo "`$Dt` waiting for internet connection"
     r=1;i=0
@@ -34,6 +42,9 @@ then
     if [ $r != 0 ]; then sleep 1; fi
     i=$(($i + 1))
     done
+    else
+        echo "`$Dt` only SMB sources configured, skipping internet check"
+    fi
 fi
 
 # check for qbdb
@@ -54,8 +65,11 @@ echo "Current Library list"
 echo "$lib_list_before"
 
 
+# keep smb passwords out of the log
+maskSecrets() { printf '%s' "$1" | sed -e 's/password=[^,|]*/password=***/g' -e 's/pass=[^,|]*/pass=***/g'; }
+
 while read url || [ -n "$url" ]; do
-  echo "Reading $url"
+  echo "Reading `maskSecrets "$url"`"
   if echo "$url" | grep -q '^#'; then
     echo "Comment found"
   elif echo "$url" | grep -q "^REMOVE_DELETED$"; then
@@ -63,8 +77,10 @@ while read url || [ -n "$url" ]; do
   elif echo "$url" | grep -q "^NO_CURL_VERBOSE$"; then
 	  echo "Will have no verbose for curl"
   else
-    echo "Getting $url"
-    if echo $url | grep -q '^https*://www.dropbox.com'; then # dropbox link?
+    echo "Getting `maskSecrets "$url"`"
+    if echo "$url" | grep -q '^[[:space:]]*SMB:'; then # local smb/cifs share
+      $KC_HOME/getSmbFiles.sh "$url" "$Lib"
+    elif echo $url | grep -q '^https*://www.dropbox.com'; then # dropbox link?
       $KC_HOME/getDropboxFiles.sh "$url" "$Lib"
     elif echo $url | grep -q '^DropboxApp:'; then # dropbox token
       auth=`echo $url | sed -e 's/^DropboxApp://' -e 's/[[:space:]]*$//'`
@@ -125,6 +141,12 @@ else
       # Use NickelDBus for library refresh
       /usr/bin/qndb -t 3000 -s pfmDoneProcessing -m pfmRescanBooksFull
   fi
+fi
+
+# self-update (no-op unless kobocloudrc contains an UPDATE:owner/repo line).
+# Done at the end of the sync so the next run uses the new scripts.
+if [ -f "$KC_HOME/selfUpdate.sh" ] && [ "$TEST" = "" ]; then
+  sh "$KC_HOME/selfUpdate.sh"
 fi
 
 rm "$Logs/index" >/dev/null 2>&1
