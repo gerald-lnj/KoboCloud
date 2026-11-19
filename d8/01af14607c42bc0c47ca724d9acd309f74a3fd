@@ -1,0 +1,14 @@
+.github/workflows/deploy_koboroot.yml
+  h_0b4f5ba744e181 8-10
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "d801af14607c42bc0c47ca724d9acd309f74a3fd",
+  "prompts": {},
+  "humans": {
+    "h_0b4f5ba744e181": {
+      "author": "Gerald Lau <gerald.lau@foodpanda.com>"
+    }
+  }
+}
